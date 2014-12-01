@@ -1,12 +1,13 @@
 module Doorkeeper
   module OAuth
     class AuthorizationCodeRequest
-      include Doorkeeper::Validations
+      include Validations
+      include OAuth::RequestConcern
 
-      validate :attributes,   :error => :invalid_request
-      validate :client,       :error => :invalid_client
-      validate :grant,        :error => :invalid_grant
-      validate :redirect_uri, :error => :invalid_grant
+      validate :attributes,   error: :invalid_request
+      validate :client,       error: :invalid_client
+      validate :grant,        error: :invalid_grant
+      validate :redirect_uri, error: :invalid_grant
 
       attr_accessor :server, :grant, :client, :redirect_uri, :access_token
 
@@ -17,22 +18,7 @@ module Doorkeeper
         @redirect_uri = parameters[:redirect_uri]
       end
 
-      def authorize
-        validate
-        @response = if valid?
-          grant.revoke
-          issue_token
-          TokenResponse.new access_token
-        else
-          ErrorResponse.from_request self
-        end
-      end
-
-      def valid?
-        self.error.nil?
-      end
-
-    private
+      private
 
       def issue_token
         @access_token = Doorkeeper::AccessToken.create!({
@@ -43,6 +29,14 @@ module Doorkeeper
           :use_refresh_token => server.refresh_token_enabled?,
           :meta              => grant.meta
         })
+      end
+
+      def before_successful_response
+        grant.revoke
+        find_or_create_access_token(grant.application,
+                                    grant.resource_owner_id,
+                                    grant.scopes,
+                                    server)
       end
 
       def validate_attributes
